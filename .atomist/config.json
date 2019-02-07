@@ -1,0 +1,18 @@
+{
+  "sdm": {
+    "enabled": [
+      "@atomist/atomist-sdm"
+    ]
+  },
+  "npm": {
+    "publish": {
+      "enabled": true,
+      "access": "restricted"
+    }
+  },
+  "docker": {
+    "build": {
+      "push": true
+    }
+  }
+}

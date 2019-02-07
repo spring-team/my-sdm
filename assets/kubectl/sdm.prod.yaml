@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sdm
+  labels:
+    owner: atomist
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sdm-serviceaccount
+  namespace: sdm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: sdm-role
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "secrets", "serviceaccounts", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps", "extensions"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: sdm-role-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: sdm-role
+subjects:
+  - kind: ServiceAccount
+    name: sdm-serviceaccount
+    namespace: sdm
+---
+kind: Deployment
+apiVersion: extensions/v1beta1
+metadata:
+  name: global-sdm
+  namespace: sdm
+  labels:
+    app: global-sdm
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: global-sdm
+  template:
+    metadata:
+      labels:
+        app: global-sdm
+        version: "0"
+    spec:
+      serviceAccountName: sdm-serviceaccount
+      imagePullSecrets:
+        - name: sdm-imagepullsecret
+      containers:
+        - name: global-sdm
+          image: atomist-docker-t095sffbk.jfrog.io/global-sdm:0.0.6
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ATOMIST_DEPLOYMENT_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_ENV
+              value: production
+            - name: FORCE_COLOR
+              value: "1"
+            - name: ATOMIST_GOAL_SCHEDULER
+              value: kubernetes
+            - name: ATOMIST_CONFIG_PATH
+              value: /opt/atm/client.config.json
+          ports:
+            - name: http
+              containerPort: 2866
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: "/health"
+              port: 2866
+              scheme: HTTP
+            initialDelaySeconds: 20
+            timeoutSeconds: 3
+            periodSeconds: 20
+            successThreshold: 1
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: "/health"
+              port: 2866
+              scheme: HTTP
+            initialDelaySeconds: 20
+            timeoutSeconds: 3
+            periodSeconds: 20
+            successThreshold: 1
+            failureThreshold: 3
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 3000Mi
+            requests:
+              cpu: 100m
+              memory: 384Mi
+          volumeMounts:
+            - name: automation
+              mountPath: /opt/atm
+              readOnly: true
+            - name: data
+              mountPath: /opt/data
+      volumes:
+        - name: automation
+          secret:
+            secretName: global-sdm
+        - name: data
+          hostPath:
+            path: /mnt/disks/ssd0/data/global-sdm
+            type: DirectoryOrCreate
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
